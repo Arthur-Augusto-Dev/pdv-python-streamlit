@@ -1,41 +1,49 @@
 import streamlit as st
-from database import criar_tabelas
+import pandas as pd
+from database import criar_tabelas, obter_vendas_do_dia
 from pdv_core import registrar_venda
 from comprovante import gerar_comprovante
 
-from database import criar_tabelas
-
+st.set_page_config(page_title="PDV Pro - ADS", layout="wide")
 criar_tabelas()
 
-st.title("PDV Simples")
-st.subheader("Registrar Venda")
+st.title("🚀 PDV com Relatórios")
 
-if "itens" not in st.session_state:
-    st.session_state.itens = []
+aba1, aba2 = st.tabs(["🛒 Caixa", "📊 Gráficos"])
 
-produto = st.text_input("Produto")
-preco = st.number_input("Preço", min_value=0.0, step=0.5)
-qtd = st.number_input("Quantidade", min_value=1, step=1)
+with aba1:
+    if "itens" not in st.session_state:
+        st.session_state.itens = []
 
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        with st.form("novo_item", clear_on_submit=True):
+            col_a, col_b, col_c = st.columns([3, 1, 1])
+            p = col_a.text_input("Produto")
+            pr = col_b.number_input("Preço Unit.", min_value=0.0)
+            q = col_c.number_input("Qtd", min_value=1)
+            if st.form_submit_button("Adicionar"):
+                if p and pr > 0:
+                    st.session_state.itens.append({"Produto": p, "Preço Unit.": pr, "Qtd": q})
+                    st.rerun()
+        if st.session_state.itens:
+            st.table(st.session_state.itens)
 
-if st.button("Adicionar item"):
-    if produto and preco > 0:
-        st.session_state.itens.append({"nome": produto, "preco": preco, "qtd": qtd})
+    with c2:
+        total = sum(i["Preço Unit."] * i["Qtd"] for i in st.session_state.itens)
+        st.metric("Total", f"R$ {total:.2f}")
+        forma = st.selectbox("Pagamento", ["Dinheiro", "Pix", "Cartão"])
+        if st.button("Finalizar Venda"):
+            if st.session_state.itens:
+                v_id, v_total, v_data = registrar_venda(st.session_state.itens, forma)
+                st.success("Venda Realizada!")
+                st.session_state.itens = []
+                st.balloons()
 
-if st.session_state.itens:
-    st.subheader("Itens do carrinho")
-    st.table(st.session_state.itens)
-
-pagamento = st.selectbox("Forma de pagamento", ["Débito", "Crédito", "Pix", "Dinheiro"])
-
-if st.button("Finalizar venda") and st.session_state.itens:
-    venda_id, total, data = registrar_venda(st.session_state.itens, pagamento)
-    comprovante = gerar_comprovante(
-        venda_id, data, st.session_state.itens, total, pagamento
-    )
-
-    st.text_area("Comprovante", comprovante, height=300)
-
-    st.session_state.itens = []
-
-# python -m streamlit run app_streamlit.py
+with aba2:
+    vendas = obter_vendas_do_dia()
+    if vendas:
+        df = pd.DataFrame(vendas, columns=['ID', 'Valor', 'Pagamento', 'Data'])
+        st.subheader("Vendas por Forma de Pagamento")
+        st.bar_chart(df.groupby('Pagamento')['Valor'].sum())
+        st.dataframe(df, use_container_width=True)
